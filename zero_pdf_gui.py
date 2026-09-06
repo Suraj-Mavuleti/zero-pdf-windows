@@ -9,7 +9,6 @@ import os
 class AppGUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        # Determine app name from path
         script_name = os.path.basename(__file__)
         self.app_name = script_name.replace('_gui.py', '').replace('zero_', '').upper()
         
@@ -17,15 +16,12 @@ class AppGUI(tk.Tk):
         self.geometry("700x500")
         self.configure(bg="#1E1E2E")
         
-        # Header
         lbl = tk.Label(self, text=f"ZERO {self.app_name} ENGINE", font=("Courier", 22, "bold"), bg="#1E1E2E", fg="#A6E3A1")
         lbl.pack(pady=15)
         
-        # Console output
         self.console = scrolledtext.ScrolledText(self, bg="#11111B", fg="#CBA6F7", font=("Courier", 11), state=tk.DISABLED)
         self.console.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
-        # Control Panel
         btn_frame = tk.Frame(self, bg="#1E1E2E")
         btn_frame.pack(pady=15)
         
