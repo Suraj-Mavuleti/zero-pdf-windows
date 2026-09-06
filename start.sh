@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 zero-pdf.py
+python3 zero-pdf.py "$@"
