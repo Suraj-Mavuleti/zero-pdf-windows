@@ -1,64 +1,61 @@
-import customtkinter as ctk
-import threading
-import time
-import math
-import socket
-import urllib.request
-import json
-import sqlite3
-import random
+import sys
+import os
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+try:
+    from PyQt5.QtCore import *
+    from PyQt5.QtWidgets import *
+    from PyQt5.QtGui import *
+    from PyQt5.QtWebEngineWidgets import *
+except ImportError:
+    print("FATAL: PyQt5 or PyQtWebEngine not found.")
+    sys.exit(1)
 
-class App(ctk.CTk):
+class ZeroPDF(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.title("Zero Pdf - Utility Tool")
-        self.geometry("800x600")
-        self.configure(fg_color="#1a1a24")
+        self.setWindowTitle("Zero PDF - Premium Document Viewer")
+        self.setGeometry(100, 100, 1000, 800)
         
-        # Header
-        self.header = ctk.CTkLabel(self, text="Zero Pdf - Utility Tool", font=("Helvetica", 24, "bold"), text_color="#00C7FF")
-        self.header.pack(pady=20)
+        self.setStyleSheet("""
+            QMainWindow { background-color: #1a1a24; }
+            QToolBar { background: #1a1a24; border-bottom: 1px solid #3d3d4e; padding: 10px; spacing: 15px;}
+            QPushButton { background: #00C7FF; color: #1a1a24; border-radius: 8px; padding: 8px 20px; font-weight: bold; font-size: 14px;}
+            QPushButton:hover { background: #00A3CC; }
+            QLabel { color: #cccccc; padding-left: 15px; font-size: 14px; font-family: 'Helvetica Neue', sans-serif;}
+        """)
         
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=10)
+        # Chromium WebEngine with PDF Viewer Plugin explicitly enabled
+        self.browser = QWebEngineView()
+        self.browser.settings().setAttribute(QWebEngineSettings.PluginsEnabled, True)
+        self.browser.settings().setAttribute(QWebEngineSettings.PdfViewerEnabled, True)
+        self.setCentralWidget(self.browser)
         
-        self.setup_ui()
+        nav_bar = QToolBar("Toolbar")
+        nav_bar.setMovable(False)
+        self.addToolBar(nav_bar)
         
-    
-    def setup_ui(self):
-        self.log = ctk.CTkTextbox(self.main_frame, font=("Courier", 14), fg_color="#0a0a0a", text_color="#00FF00")
-        self.log.pack(fill=ctk.BOTH, expand=True, pady=10)
+        open_btn = QPushButton("📂 Open PDF")
+        open_btn.clicked.connect(self.open_pdf)
+        nav_bar.addWidget(open_btn)
         
-        btn_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        btn_frame.pack(fill=ctk.X)
+        self.file_label = QLabel("No PDF loaded. Click 'Open PDF' to select a file.")
+        nav_bar.addWidget(self.file_label)
         
-        ctk.CTkButton(btn_frame, text="Start Service", command=self.start).pack(side=ctk.LEFT, padx=10)
-        ctk.CTkButton(btn_frame, text="Stop Service", command=self.stop).pack(side=ctk.RIGHT, padx=10)
-        
-        self.running = False
-        
-    def start(self):
-        if self.running: return
-        self.running = True
-        self.log.insert("end", "\n[+] Initializing service modules...")
-        threading.Thread(target=self.run_service, daemon=True).start()
-        
-    def stop(self):
-        self.running = False
-        self.log.insert("end", "\n[-] Service stopped.")
-        
-    def run_service(self):
-        counter = 0
-        while self.running:
-            time.sleep(1)
-            counter += 1
-            self.log.insert("end", f"\n[TICK] Process heartbeat ok... Operations executed: {counter*142}")
-            self.log.see("end")
-
+    def open_pdf(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF File", "", "PDF Files (*.pdf)", options=options)
+        if file_path:
+            self.browser.setUrl(QUrl.fromLocalFile(file_path))
+            self.file_label.setText(f"Viewing: {os.path.basename(file_path)}")
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    
+    # Enable high DPI scaling
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    
+    window = ZeroPDF()
+    window.show()
+    sys.exit(app.exec_())
