@@ -1,385 +1,217 @@
 import sys
+import gi
 import os
 import json
-import time
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtWebEngineWidgets import *
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 
-RECENTS_FILE = os.path.expanduser("~/.gemini/antigravity/scratch/zero_pdf_recents.json")
+CONFIG_DIR = os.path.expanduser("~/.config/zero-pdf")
+RECENT_FILE = os.path.join(CONFIG_DIR, "recent.json")
 
-class Worker(QThread):
-    finished = pyqtSignal()
-    progress = pyqtSignal(int, str)
-    
-    def run(self):
-        steps = ["Initializing Neural Engine...", "Extracting Layers...", "Running OCR...", "Mapping Text Nodes...", "Finalizing..."]
-        for i, step in enumerate(steps):
-            self.progress.emit((i+1)*20, step)
-            time.sleep(0.6)
-        self.finished.emit()
-
-class ZeroPDF(QMainWindow):
+class ZeroPDF(Gtk.Window):
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Zero PDF - Ultimate Edition")
-        self.setGeometry(100, 100, 1300, 850)
+        super().__init__(title="Zero PDF - Ultimate Studio")
+        self.set_default_size(1200, 800)
         
-        # Load recents
-        self.recents = []
-        if os.path.exists(RECENTS_FILE):
-            try:
-                with open(RECENTS_FILE, "r") as f:
-                    self.recents = json.load(f)
-            except: pass
-            
-        self.setup_ui()
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        self.recent_files = self.load_recent()
         
-    def setup_ui(self):
-        # MASSIVE PREMIUM GLASS THEME
-        self.setStyleSheet("""
-            QMainWindow {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0B0E14, stop:1 #151A25);
-            }
-            #Sidebar {
-                background-color: #07090D;
-                border-right: 1px solid #1E2532;
-            }
-            #Logo {
-                color: #00C7FF;
-                font-family: 'Segoe UI';
-                font-size: 26px;
-                font-weight: bold;
-                padding: 20px;
-            }
-            QListWidget {
-                background: transparent;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                color: #8B94A5;
-                font-family: 'Segoe UI';
-                font-size: 16px;
-                font-weight: 600;
-                padding: 15px 25px;
-                border-left: 4px solid transparent;
-            }
-            QListWidget::item:hover {
-                background-color: #121620;
-                color: #00C7FF;
-            }
-            QListWidget::item:selected {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(0,199,255,0.15), stop:1 transparent);
-                color: #FFFFFF;
-                border-left: 4px solid #00C7FF;
-            }
-            QLabel {
-                font-family: 'Segoe UI';
-                color: #E2E8F0;
-            }
-            QGroupBox {
-                background-color: rgba(20, 26, 38, 0.6);
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 16px;
-                margin-top: 3ex;
-                font-family: 'Segoe UI';
-                font-size: 16px;
-                font-weight: bold;
-                color: #00C7FF;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top center;
-                padding: 0 10px;
-            }
-            QPushButton {
-                background-color: #00C7FF;
-                color: #000000;
-                border-radius: 10px;
-                padding: 12px;
-                font-family: 'Segoe UI';
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #00E5FF;
-            }
-            QComboBox {
-                background-color: #0F131C;
-                color: #FFFFFF;
-                border: 1px solid #2A3441;
-                border-radius: 8px;
-                padding: 10px;
-                font-family: 'Segoe UI';
-                font-size: 14px;
-            }
-            QComboBox:drop-down { border: none; }
-            #RecentItem {
-                background-color: rgba(30, 38, 56, 0.4);
-                border-radius: 8px;
-                padding: 10px;
-                margin: 5px;
-            }
-        """)
+        self.header = Gtk.HeaderBar()
+        self.header.set_show_close_button(True)
+        self.header.props.title = ""
+        self.header.get_style_context().add_class("hidden-header")
+        self.set_titlebar(self.header)
         
-        central = QWidget()
-        self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(0,0,0,0)
-        main_layout.setSpacing(0)
+        self.setup_css()
         
-        # Sidebar
-        sidebar = QFrame()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(280)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0,20,0,0)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.add(main_box)
         
-        logo = QLabel("ZERO PDF PRO")
-        logo.setObjectName("Logo")
-        sidebar_layout.addWidget(logo)
+        # ================= SIDEBAR =================
+        self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.sidebar.set_size_request(280, -1)
+        self.sidebar.get_style_context().add_class("sidebar")
+        main_box.pack_start(self.sidebar, False, False, 0)
         
-        self.nav = QListWidget()
-        self.nav.addItems(["🚀 Dashboard", "📄 Viewer Workspace", "🕒 Recent Files"])
-        self.nav.currentRowChanged.connect(self.switch_page)
-        sidebar_layout.addWidget(self.nav)
-        main_layout.addWidget(sidebar)
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        logo = Gtk.Label(label="Z E R O P D F")
+        logo.get_style_context().add_class("sidebar-logo")
+        logo_box.pack_start(logo, True, True, 0)
+        self.sidebar.pack_start(logo_box, False, False, 20)
         
-        # Content Pages
-        self.pages = QStackedWidget()
-        main_layout.addWidget(self.pages)
+        self.btn_open = Gtk.Button(label="📄 Open PDF")
+        self.btn_open.get_style_context().add_class("action-btn")
+        self.btn_open.connect("clicked", self.on_open_pdf)
+        self.sidebar.pack_start(self.btn_open, False, False, 10)
         
-        self.page_dashboard = QWidget()
-        self.page_viewer = QWidget()
-        self.page_recents = QWidget()
+        lbl_recent = Gtk.Label(label="RECENT FILES")
+        lbl_recent.get_style_context().add_class("section-label")
+        lbl_recent.set_halign(Gtk.Align.START)
+        lbl_recent.set_margin_start(20)
+        lbl_recent.set_margin_top(20)
+        self.sidebar.pack_start(lbl_recent, False, False, 10)
         
-        self.pages.addWidget(self.page_dashboard)
-        self.pages.addWidget(self.page_viewer)
-        self.pages.addWidget(self.page_recents)
+        self.recent_list = Gtk.ListBox()
+        self.recent_list.get_style_context().add_class("transparent-list")
+        self.update_recent_ui()
+        self.sidebar.pack_start(self.recent_list, False, False, 0)
         
-        self.build_dashboard()
-        self.build_viewer()
-        self.build_recents()
+        # Bottom tools
+        tools_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        tools_box.set_margin_start(15)
+        tools_box.set_margin_end(15)
+        tools_box.set_margin_bottom(20)
         
-        self.nav.setCurrentRow(0)
+        self.btn_convert = Gtk.Button(label="🔄 Convert Tools")
+        self.btn_convert.get_style_context().add_class("nav-btn")
+        self.btn_convert.connect("clicked", self.show_converter)
+        tools_box.pack_start(self.btn_convert, False, False, 0)
+        
+        self.btn_ocr = Gtk.Button(label="👁️ OCR Engine")
+        self.btn_ocr.get_style_context().add_class("nav-btn")
+        self.btn_ocr.connect("clicked", self.show_ocr)
+        tools_box.pack_start(self.btn_ocr, False, False, 0)
+        
+        self.sidebar.pack_end(tools_box, False, False, 0)
+        
+        # ================= MAIN WORKSPACE =================
+        self.workspace = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.workspace.get_style_context().add_class("workspace")
+        main_box.pack_start(self.workspace, True, True, 0)
+        
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.workspace.pack_start(self.stack, True, True, 0)
+        
+        # View 1: Empty / Welcome
+        welcome_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        welcome_box.set_valign(Gtk.Align.CENTER)
+        welcome_box.set_halign(Gtk.Align.CENTER)
+        w_lbl = Gtk.Label(label="Ultimate PDF Studio")
+        w_lbl.get_style_context().add_class("welcome-title")
+        w_sub = Gtk.Label(label="Open a PDF to start editing or use conversion tools.")
+        w_sub.get_style_context().add_class("welcome-sub")
+        welcome_box.pack_start(w_lbl, False, False, 10)
+        welcome_box.pack_start(w_sub, False, False, 0)
+        self.stack.add_named(welcome_box, "welcome")
+        
+        # View 2: Converter Dashboard (Glassmorphism Slide-down simulation)
+        self.converter_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        self.converter_box.set_valign(Gtk.Align.CENTER)
+        self.converter_box.set_halign(Gtk.Align.CENTER)
+        c_title = Gtk.Label(label="Conversion Matrix")
+        c_title.get_style_context().add_class("welcome-title")
+        self.converter_box.pack_start(c_title, False, False, 20)
+        
+        grid = Gtk.Grid(column_spacing=20, row_spacing=20)
+        grid.attach(self.make_tool_card("📝 Word to PDF"), 0, 0, 1, 1)
+        grid.attach(self.make_tool_card("🖼️ Pic to PDF"), 1, 0, 1, 1)
+        grid.attach(self.make_tool_card("📊 Excel to PDF"), 0, 1, 1, 1)
+        grid.attach(self.make_tool_card("📦 PDF to Word/Images"), 1, 1, 1, 1)
+        self.converter_box.pack_start(grid, False, False, 0)
+        self.stack.add_named(self.converter_box, "converter")
+        
+        # View 3: OCR Dashboard
+        self.ocr_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        self.ocr_box.set_valign(Gtk.Align.CENTER)
+        self.ocr_box.set_halign(Gtk.Align.CENTER)
+        o_title = Gtk.Label(label="Deep OCR Engine")
+        o_title.get_style_context().add_class("welcome-title")
+        o_sub = Gtk.Label(label="Extract text and make scanned documents editable.")
+        o_sub.get_style_context().add_class("welcome-sub")
+        self.ocr_box.pack_start(o_title, False, False, 10)
+        self.ocr_box.pack_start(o_sub, False, False, 20)
+        btn_run_ocr = Gtk.Button(label="Select Scanned PDF")
+        btn_run_ocr.get_style_context().add_class("action-btn")
+        self.ocr_box.pack_start(btn_run_ocr, False, False, 0)
+        self.stack.add_named(self.ocr_box, "ocr")
+        
+        self.stack.set_visible_child_name("welcome")
+        
+    def make_tool_card(self, text):
+        btn = Gtk.Button(label=text)
+        btn.get_style_context().add_class("tool-card")
+        btn.set_size_request(200, 120)
+        return btn
 
-    def build_dashboard(self):
-        layout = QVBoxLayout(self.page_dashboard)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(30)
-        
-        header = QLabel("Welcome to the Ultimate PDF Studio")
-        header.setStyleSheet("font-size: 32px; font-weight: bold; color: #FFFFFF;")
-        layout.addWidget(header)
-        
-        grid = QGridLayout()
-        grid.setSpacing(25)
-        layout.addLayout(grid)
-        
-        # 1. MAKE PDF
-        grp_make = QGroupBox("✨ Create PDF")
-        vbox_make = QVBoxLayout(grp_make)
-        vbox_make.setContentsMargins(25, 35, 25, 25)
-        
-        self.make_combo = QComboBox()
-        self.make_combo.addItems(["Pic to PDF", "Word to PDF", "Excel to PDF", "Text to PDF"])
-        vbox_make.addWidget(self.make_combo)
-        
-        btn_make = QPushButton("Create Document")
-        btn_make.clicked.connect(self.action_make_pdf)
-        vbox_make.addWidget(btn_make)
-        grid.addWidget(grp_make, 0, 0)
-        
-        # 2. CONVERT PDF
-        grp_conv = QGroupBox("🔄 Convert PDF")
-        vbox_conv = QVBoxLayout(grp_conv)
-        vbox_conv.setContentsMargins(25, 35, 25, 25)
-        
-        self.conv_combo = QComboBox()
-        self.conv_combo.addItems(["PDF to Word", "PDF to Excel", "PDF to Pic", "PDF to PowerPoint"])
-        vbox_conv.addWidget(self.conv_combo)
-        
-        btn_conv = QPushButton("Convert File")
-        btn_conv.clicked.connect(self.action_convert_pdf)
-        vbox_conv.addWidget(btn_conv)
-        grid.addWidget(grp_conv, 0, 1)
-        
-        # 3. OCR & EDIT
-        grp_edit = QGroupBox("📝 OCR & Edit PDF")
-        vbox_edit = QVBoxLayout(grp_edit)
-        vbox_edit.setContentsMargins(25, 35, 25, 25)
-        
-        lbl_edit = QLabel("Make any PDF completely editable.\nAdd/remove text and extract layers.")
-        lbl_edit.setStyleSheet("color: #8B94A5;")
-        vbox_edit.addWidget(lbl_edit)
-        
-        btn_edit = QPushButton("Open Neural Editor")
-        btn_edit.setStyleSheet("background-color: #8A2BE2; color: white;")
-        btn_edit.clicked.connect(self.action_ocr_edit)
-        vbox_edit.addWidget(btn_edit)
-        grid.addWidget(grp_edit, 1, 0)
-        
-        # 4. VIEW PDF
-        grp_view = QGroupBox("📄 Standard Viewer")
-        vbox_view = QVBoxLayout(grp_view)
-        vbox_view.setContentsMargins(25, 35, 25, 25)
-        
-        lbl_view = QLabel("Open a PDF with the blazing fast\nChromium rendering engine.")
-        lbl_view.setStyleSheet("color: #8B94A5;")
-        vbox_view.addWidget(lbl_view)
-        
-        btn_view = QPushButton("Open File")
-        btn_view.setStyleSheet("background-color: transparent; border: 2px solid #00C7FF; color: #00C7FF;")
-        btn_view.clicked.connect(self.action_open_pdf)
-        vbox_view.addWidget(btn_view)
-        grid.addWidget(grp_view, 1, 1)
-        
-        layout.addStretch()
+    def load_recent(self):
+        try:
+            if os.path.exists(RECENT_FILE):
+                with open(RECENT_FILE, "r") as f: return json.load(f)
+        except: pass
+        return []
 
-    def build_viewer(self):
-        layout = QVBoxLayout(self.page_viewer)
-        layout.setContentsMargins(0,0,0,0)
-        
-        top_bar = QFrame()
-        top_bar.setStyleSheet("background-color: #0F131C; border-bottom: 1px solid #1E2532;")
-        top_bar.setFixedHeight(60)
-        top_layout = QHBoxLayout(top_bar)
-        
-        self.viewer_lbl = QLabel("No Document Loaded")
-        self.viewer_lbl.setStyleSheet("font-size: 16px; font-weight: bold;")
-        top_layout.addWidget(self.viewer_lbl)
-        
-        self.ocr_badge = QLabel("OCR MAPPED")
-        self.ocr_badge.setStyleSheet("background-color: #8A2BE2; color: white; padding: 5px 10px; border-radius: 5px; font-weight: bold;")
-        self.ocr_badge.hide()
-        top_layout.addWidget(self.ocr_badge)
-        
-        layout.addWidget(top_bar)
-        
-        self.browser = QWebEngineView()
-        self.browser.settings().setAttribute(QWebEngineSettings.PluginsEnabled, True)
-        self.browser.settings().setAttribute(QWebEngineSettings.PdfViewerEnabled, True)
-        layout.addWidget(self.browser)
+    def save_recent(self):
+        os.makedirs(os.path.dirname(RECENT_FILE), exist_ok=True)
+        with open(RECENT_FILE, "w") as f: json.dump(self.recent_files[:10], f)
 
-    def build_recents(self):
-        layout = QVBoxLayout(self.page_recents)
-        layout.setContentsMargins(40,40,40,40)
-        
-        header = QLabel("🕒 Recently Opened Documents")
-        header.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF;")
-        layout.addWidget(header)
-        
-        self.recents_list = QListWidget()
-        self.recents_list.setStyleSheet("""
-            QListWidget { background: rgba(20, 26, 38, 0.4); border-radius: 10px; padding: 10px; }
-            QListWidget::item { padding: 15px; border-bottom: 1px solid #1E2532; color: #00C7FF; }
-            QListWidget::item:hover { background: #121620; }
-        """)
-        self.recents_list.itemClicked.connect(self.load_recent)
-        layout.addWidget(self.recents_list)
-        self.refresh_recents()
-        
-    def refresh_recents(self):
-        self.recents_list.clear()
-        for r in self.recents:
-            self.recents_list.addItem(f"📄 {os.path.basename(r)} \n   {r}")
-            
-    def add_to_recents(self, file_path):
-        if file_path in self.recents:
-            self.recents.remove(file_path)
-        self.recents.insert(0, file_path)
-        self.recents = self.recents[:10] # Keep top 10
-        with open(RECENTS_FILE, "w") as f:
-            json.dump(self.recents, f)
-        self.refresh_recents()
+    def update_recent_ui(self):
+        for child in self.recent_list.get_children():
+            self.recent_list.remove(child)
+        for path in self.recent_files:
+            row = Gtk.ListBoxRow()
+            row.get_style_context().add_class("recent-row")
+            lbl = Gtk.Label(label=os.path.basename(path))
+            lbl.set_halign(Gtk.Align.START)
+            lbl.set_margin_start(15)
+            lbl.set_margin_top(10)
+            lbl.set_margin_bottom(10)
+            row.add(lbl)
+            self.recent_list.add(row)
+        self.recent_list.show_all()
 
-    def switch_page(self, row):
-        self.pages.setCurrentIndex(row)
-
-    def load_pdf_into_viewer(self, file_path, ocr_mode=False):
-        self.browser.setUrl(QUrl.fromLocalFile(file_path))
-        self.viewer_lbl.setText(f"Viewing: {os.path.basename(file_path)}")
-        self.add_to_recents(file_path)
-        self.ocr_badge.setVisible(ocr_mode)
-        self.nav.setCurrentRow(1) # Switch to viewer
-
-    def action_open_pdf(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
-        if file_path:
-            self.load_pdf_into_viewer(file_path)
-            
-    def load_recent(self, item):
-        path = item.text().split("\n   ")[1]
-        if os.path.exists(path):
-            self.load_pdf_into_viewer(path)
-        else:
-            QMessageBox.warning(self, "Error", "File no longer exists.")
-
-    def action_make_pdf(self):
-        mode = self.make_combo.currentText()
-        if mode == "Pic to PDF":
-            files, _ = QFileDialog.getOpenFileNames(self, "Select Images", "", "Images (*.png *.jpg *.jpeg)")
-            if not files: return
-            
-            out_path, _ = QFileDialog.getSaveFileName(self, "Save PDF", "Output.pdf", "PDF (*.pdf)")
-            if not out_path: return
-            
-            # Use QPdfWriter to generate a real PDF from the images locally!
-            writer = QPdfWriter(out_path)
-            writer.setResolution(300)
-            painter = QPainter(writer)
-            for i, file in enumerate(files):
-                img = QImage(file)
-                # Scale image to fit page roughly
-                rect = painter.viewport()
-                size = img.size()
-                size.scale(rect.size(), Qt.KeepAspectRatio)
-                painter.setViewport(rect.x(), rect.y(), size.width(), size.height())
-                painter.setWindow(img.rect())
-                painter.drawImage(0, 0, img)
-                if i < len(files) - 1:
-                    writer.newPage()
-            painter.end()
-            self.load_pdf_into_viewer(out_path)
-            
-        else:
-            QMessageBox.information(self, "Processing", f"Deep integration for {mode} is running... (Feature simulating in beta)")
-
-    def action_convert_pdf(self):
-        mode = self.conv_combo.currentText()
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF to Convert", "", "PDF Files (*.pdf)")
-        if file_path:
-            QMessageBox.information(self, "Success", f"The PDF has been successfully parsed into {mode.split(' to ')[1]} format and saved to your Documents folder.")
-
-    def action_ocr_edit(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select PDF to OCR & Edit", "", "PDF Files (*.pdf)")
-        if not file_path: return
+    def on_open_pdf(self, widget):
+        dialog = Gtk.FileChooserDialog(title="Open PDF", parent=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        filter_pdf = Gtk.FileFilter()
+        filter_pdf.set_name("PDF files")
+        filter_pdf.add_pattern("*.pdf")
+        dialog.add_filter(filter_pdf)
         
-        self.progress_dialog = QProgressDialog("Initializing Neural Engine...", "Cancel", 0, 100, self)
-        self.progress_dialog.setWindowTitle("Zero OCR Engine")
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
-        self.progress_dialog.setStyleSheet("background-color: #151A25; color: #00C7FF;")
-        
-        self.thread = Worker()
-        self.thread.progress.connect(self.progress_dialog.setValue)
-        self.thread.progress.connect(self.progress_dialog.setLabelText)
-        self.thread.finished.connect(lambda: self.finish_ocr(file_path))
-        self.thread.start()
-        
-    def finish_ocr(self, file_path):
-        self.progress_dialog.close()
-        self.load_pdf_into_viewer(file_path, ocr_mode=True)
-        QMessageBox.information(self, "OCR Complete", "The PDF has been successfully processed.\nAll text layers are now interactive and unlocked for modifications.")
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            filename = dialog.get_filename()
+            if filename not in self.recent_files:
+                self.recent_files.insert(0, filename)
+                self.save_recent()
+                self.update_recent_ui()
+            # Simulation of opening pdf
+            self.stack.set_visible_child_name("welcome")
+            print("Opened PDF:", filename)
+        dialog.destroy()
+
+    def show_converter(self, widget):
+        self.stack.set_visible_child_name("converter")
+
+    def show_ocr(self, widget):
+        self.stack.set_visible_child_name("ocr")
+
+    def setup_css(self):
+        css = b'''
+            window { background-color: #030305; }
+            .hidden-header { background: #030305; min-height: 0px; padding: 0px; border: none; box-shadow: none; }
+            .sidebar { background-color: rgba(8, 10, 16, 0.95); border-right: 1px solid rgba(255, 255, 255, 0.05); }
+            .sidebar-logo { color: #FFFFFF; font-size: 22px; font-weight: 900; letter-spacing: 5px; text-shadow: 0 0 15px rgba(255,0,85,0.6); }
+            .action-btn { background: linear-gradient(45deg, #FF0055, #FF5500); color: white; border-radius: 20px; font-weight: bold; padding: 12px; margin: 0 15px; border: none; box-shadow: 0 5px 15px rgba(255,0,85,0.4); transition: all 0.3s; }
+            .action-btn:hover { box-shadow: 0 8px 25px rgba(255,0,85,0.6); }
+            .section-label { color: #4A5568; font-size: 11px; font-weight: 900; letter-spacing: 2px; }
+            .transparent-list { background: transparent; }
+            .recent-row { background: transparent; color: #8B94A5; font-weight: bold; font-size: 13px; border-radius: 8px; margin: 2px 10px; border: 1px solid transparent; }
+            .recent-row:hover { background: rgba(255, 255, 255, 0.05); color: #FFFFFF; }
+            .nav-btn { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #8B94A5; border-radius: 12px; padding: 12px; font-weight: bold; font-size: 14px; transition: all 0.2s ease; }
+            .nav-btn:hover { background: rgba(255,0,85,0.1); color: #FF0055; border: 1px solid #FF0055; box-shadow: 0 0 15px rgba(255,0,85,0.2); }
+            .workspace { background: radial-gradient(circle at center, #10141E, #030305); }
+            .welcome-title { font-size: 42px; font-weight: bold; color: #FFFFFF; text-shadow: 0 5px 20px rgba(0,0,0,0.5); margin-bottom: 10px; }
+            .welcome-sub { font-size: 18px; color: #8B94A5; }
+            .tool-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; color: #FFFFFF; font-size: 16px; font-weight: bold; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); backdrop-filter: blur(10px); }
+            .tool-card:hover { transform: translateY(-5px); background: rgba(255,0,85,0.1); border: 1px solid #FF0055; box-shadow: 0 15px 40px rgba(255,0,85,0.3); }
+        '''
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-    
-    window = ZeroPDF()
-    window.show()
-    sys.exit(app.exec_())
+    win = ZeroPDF()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
