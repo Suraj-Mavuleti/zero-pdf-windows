@@ -203,7 +203,7 @@ class ZeroPDF(Gtk.Window):
             .workspace { background: radial-gradient(circle at center, #10141E, #030305); }
             .welcome-title { font-size: 42px; font-weight: bold; color: #FFFFFF; text-shadow: 0 5px 20px rgba(0,0,0,0.5); margin-bottom: 10px; }
             .welcome-sub { font-size: 18px; color: #8B94A5; }
-            .tool-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; color: #FFFFFF; font-size: 16px; font-weight: bold; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); backdrop-filter: blur(10px); }
+            .tool-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; color: #FFFFFF; font-size: 16px; font-weight: bold; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
             .tool-card:hover { transform: translateY(-5px); background: rgba(255,0,85,0.1); border: 1px solid #FF0055; box-shadow: 0 15px 40px rgba(255,0,85,0.3); }
         '''
         provider = Gtk.CssProvider()
